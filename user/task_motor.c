@@ -12,6 +12,7 @@
 #include "task_motor.h"
 #include "uart_tx.h"
 
+#define MOTOR_PERIOD_MS         50U
 #define AVOID_STOP_TICKS       2U   /* 100 ms */
 #define AVOID_REVERSE_TICKS    6U   /* 300 ms */
 #define AVOID_PIVOT_TICKS     12U   /* 600 ms including direction ramp */
@@ -32,11 +33,43 @@ typedef enum {
 
 static AVOIDANCE_STATE avoidance_state;
 static UW avoidance_ticks;
+static BOOL avoidance_enabled;
+static UW drive_ticks_remaining;
+static BOOL drive_expired;
+
+void task_motor_set_drive(BOOL enable_avoidance, RELTIM duration)
+{
+    UINT intsts;
+    DI(intsts);
+    avoidance_enabled = enable_avoidance;
+    avoidance_request_pending = FALSE;
+    avoidance_abort_pending = FALSE;
+    avoidance_state = AVOIDANCE_IDLE;
+    avoidance_ticks = 0U;
+    /* 初回の周期通知までの時間は不定なので、1周期余分に数える。 */
+    drive_ticks_remaining = duration > 0
+        ? ((UW)duration + MOTOR_PERIOD_MS - 1U) / MOTOR_PERIOD_MS + 1U : 0U;
+    drive_expired = FALSE;
+    EI(intsts);
+}
+
+void task_motor_stop_drive(void)
+{
+    UINT intsts;
+    DI(intsts);
+    task_motor_set_drive(FALSE, 0);
+    motor_stop_all();
+    EI(intsts);
+}
 
 ER task_motor_request_avoidance(void)
 {
     UINT intsts;
     DI(intsts);
+    if(avoidance_enabled == FALSE){
+        EI(intsts);
+        return E_OK;
+    }
     avoidance_request_pending = TRUE;
     EI(intsts);
     return tk_sig_sem(motor_tick_semid, 1);
@@ -51,7 +84,7 @@ ER task_motor_abort_avoidance(void)
     return tk_sig_sem(motor_tick_semid, 1);
 }
 
-static void task_motor_avoidance_step(void)
+static const char *task_motor_avoidance_step(void)
 {
     UINT intsts;
     BOOL request;
@@ -68,16 +101,14 @@ static void task_motor_avoidance_step(void)
         motor_stop_all();
         avoidance_state = AVOIDANCE_WAIT_CLEAR;
         avoidance_ticks = 0U;
-        uart_tx_send("Avoidance: aborted, wait for valid clear range\r\n");
-        return;
+        return "Avoidance: aborted, wait for valid clear range\r\n";
     }
 
     if((request != FALSE) && (avoidance_state == AVOIDANCE_IDLE)){
         motor_stop_all();
         avoidance_state = AVOIDANCE_STOP;
         avoidance_ticks = 0U;
-        uart_tx_send("Avoidance: stop\r\n");
-        return;
+        return "Avoidance: stop\r\n";
     }
 
     switch(avoidance_state){
@@ -87,7 +118,7 @@ static void task_motor_avoidance_step(void)
             motor_drive_reverse(AVOID_DUTY_PERCENT);
             avoidance_state = AVOIDANCE_REVERSE;
             avoidance_ticks = 0U;
-            uart_tx_send("Avoidance: reverse\r\n");
+            return "Avoidance: reverse\r\n";
         }
         break;
     case AVOIDANCE_REVERSE:
@@ -95,7 +126,7 @@ static void task_motor_avoidance_step(void)
             motor_drive_avoidance_left(AVOID_DUTY_PERCENT);
             avoidance_state = AVOIDANCE_PIVOT_LEFT;
             avoidance_ticks = 0U;
-            uart_tx_send("Avoidance: pivot left\r\n");
+            return "Avoidance: pivot left\r\n";
         }
         break;
     case AVOIDANCE_PIVOT_LEFT:
@@ -103,7 +134,7 @@ static void task_motor_avoidance_step(void)
             motor_stop_all();
             avoidance_state = AVOIDANCE_WAIT_CLEAR;
             avoidance_ticks = 0U;
-            uart_tx_send("Avoidance: wait for clear path\r\n");
+            return "Avoidance: wait for clear path\r\n";
         }
         break;
     case AVOIDANCE_WAIT_CLEAR:
@@ -111,13 +142,14 @@ static void task_motor_avoidance_step(void)
         if(motor_obstacle_blocked() == FALSE){
             motor_drive_forward(AVOID_DUTY_PERCENT);
             avoidance_state = AVOIDANCE_IDLE;
-            uart_tx_send("Avoidance: resume forward\r\n");
+            return "Avoidance: resume forward\r\n";
         }
         break;
     case AVOIDANCE_IDLE:
     default:
         break;
     }
+    return NULL;
 }
 
 /**
@@ -128,6 +160,9 @@ static void task_motor_avoidance_step(void)
 static void motor_periodic_handler(void *exinf)
 {
     (void)exinf;
+    if(drive_ticks_remaining > 0U && --drive_ticks_remaining == 0U){
+        drive_expired = TRUE;
+    }
     /* 滞留分は1回にまとめ、急な追い付き更新を避ける。 */
     (void)tk_sig_sem(motor_tick_semid, 1);
 }
@@ -144,7 +179,7 @@ ER task_motor_init(void)
     static const T_CCYC ccyc = {
         .exinf = NULL,
         .cycatr = TA_HLNG, .cychdr = motor_periodic_handler,
-        .cyctim = 50, .cycphs = 50,
+        .cyctim = MOTOR_PERIOD_MS, .cycphs = MOTOR_PERIOD_MS,
     };
     ID cycid;
     ER err;
@@ -177,8 +212,19 @@ void task_motor(INT stacd, void *exinf)
     avoidance_abort_pending = FALSE;
     while(1){
         if(tk_wai_sem(motor_tick_semid, 1, TMO_FEVR) == E_OK){
-            task_motor_avoidance_step();
+            UINT intsts;
+            const char *message;
+            DI(intsts);
+            if(drive_expired != FALSE){
+                task_motor_set_drive(FALSE, 0);
+                motor_drive_stop();
+                message = "drive: timed run decelerating\r\n";
+            }else{
+                message = task_motor_avoidance_step();
+            }
             motor_ramp_step();
+            EI(intsts);
+            if(message != NULL) uart_tx_send(message);
         }
     }
 }

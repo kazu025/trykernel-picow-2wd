@@ -18,6 +18,7 @@
 #include "motor.h"
 #include "i2c.h"
 #include "task_distance.h"
+#include "task_motor.h"
 #include "vl53l1x.h"
 #include "mpu6050.h"
 
@@ -282,7 +283,7 @@ static void cmd_motor(int argc, char *argv[])
     UB duty;
 
     if(argc == 2 && str_eq(argv[1], "stop") == TRUE){
-        motor_stop_all();
+        task_motor_stop_drive();
         uart_tx_send("motor: all stopped\r\n");
         return;
     }
@@ -327,11 +328,13 @@ usage:
 static void cmd_drive(int argc, char *argv[])
 {
     UB duty;
-    RELTIM duration;
+    RELTIM duration = 0;
+    UINT intsts;
+    void (*drive)(UB);
 
     if(argc == 2 && str_eq(argv[1], "stop") == TRUE){
-        motor_drive_stop();
-        uart_tx_send("drive: decelerating\r\n");
+        task_motor_stop_drive();
+        uart_tx_send("drive: stopped\r\n");
         return;
     }
     if((argc != 3 && argc != 4) || parse_u8(argv[2], &duty) == FALSE || duty > 100U){
@@ -347,20 +350,21 @@ static void cmd_drive(int argc, char *argv[])
         uart_tx_send("drive: obstacle too close or distance unavailable\r\n");
         return;
     }
-    if(str_eq(argv[1], "forward") == TRUE) motor_drive_forward(duty);
-    else if(str_eq(argv[1], "reverse") == TRUE) motor_drive_reverse(duty);
-    else if(str_eq(argv[1], "left") == TRUE) motor_drive_left(duty);
-    else if(str_eq(argv[1], "right") == TRUE) motor_drive_right(duty);
+    if(str_eq(argv[1], "forward") == TRUE) drive = motor_drive_forward;
+    else if(str_eq(argv[1], "reverse") == TRUE) drive = motor_drive_reverse;
+    else if(str_eq(argv[1], "left") == TRUE) drive = motor_drive_left;
+    else if(str_eq(argv[1], "right") == TRUE) drive = motor_drive_right;
     else {
         uart_tx_send("usage: drive forward|reverse|left|right <0-100> [ms], or stop\r\n");
         return;
     }
+    DI(intsts);
+    task_motor_stop_drive();
+    drive(duty);
+    task_motor_set_drive(drive == motor_drive_forward && duty != 0U, duration);
+    EI(intsts);
     uart_tx_printf("drive: %s %u%%\r\n", argv[1], (UINT)duty);
-    if(argc == 4){
-        (void)tk_dly_tsk(duration);
-        motor_drive_stop();
-        uart_tx_send("drive: timed run decelerating\r\n");
-    }
+    if(argc == 4 && duration == 0) task_motor_stop_drive();
 }
 
 /**
@@ -457,7 +461,7 @@ static void cmd_gyro(int argc, char *argv[])
         initialized = TRUE;
     }
     if(calibrate == TRUE){
-        motor_stop_all();
+        task_motor_stop_drive();
         uart_tx_send("gyro: motors stopped; keep board still for 3 seconds\r\n");
         (void)tk_dly_tsk(1000);
         if(mpu6050_calibrate_gyro(200U, 10, &x, &y, &z) == FALSE){
