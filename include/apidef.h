@@ -221,9 +221,9 @@ ER tk_wai_flg(
  * @brief セマフォ生成情報。
  */
 typedef struct t_csem {
-    ATR sematr;  /**< セマフォ属性。 */
-    INT isemcnt; /**< セマフォ資源数の初期値。 */
-    INT maxsem;  /**< セマフォ資源数の最大値。 */
+    ATR sematr;  //!< セマフォ属性。
+    INT isemcnt; //!< セマフォ資源数の初期値。
+    INT maxsem;  //! < セマフォ資源数の最大値。
 } T_CSEM;
 
 /**

@@ -13,6 +13,7 @@
 #include "vl53l1x.h"
 #include "task_distance.h"
 #include "motor.h"
+#include "task_motor.h"
 
 #define DISTANCE_SAMPLE_INTERVAL_MS  100  //!< 正常測定後の次回測定までの待ち時間（ミリ秒）。
 #define DISTANCE_RETRY_INTERVAL_MS   1000 //!< 測定失敗後の再試行までの待ち時間（ミリ秒）。
@@ -68,6 +69,7 @@ void task_distance(INT stacd, void *exinf)
     UH distance_mm;
     UINT intsts;
     UINT init_index;
+    BOOL obstacle_near_previous = FALSE;
 
     (void)stacd;
     (void)exinf;
@@ -83,6 +85,8 @@ void task_distance(INT stacd, void *exinf)
             shared_ready = FALSE;
             EI(intsts);
             motor_obstacle_update(0U, FALSE);
+            obstacle_near_previous = FALSE;
+            (void)task_motor_abort_avoidance();
             count = 0U;
             next = 0U;
             sum = 0U;
@@ -108,6 +112,14 @@ void task_distance(INT stacd, void *exinf)
         EI(intsts);
 
         motor_obstacle_update(distance_mm, TRUE);
+        if(distance_mm <= 200U){
+            if(obstacle_near_previous == FALSE){
+                (void)task_motor_request_avoidance();
+            }
+            obstacle_near_previous = TRUE;
+        }else{
+            obstacle_near_previous = FALSE;
+        }
 
         (void)tk_dly_tsk(DISTANCE_SAMPLE_INTERVAL_MS);
     }

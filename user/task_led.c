@@ -92,8 +92,8 @@ void task_led1(INT stacd, void *exinf)
         .exinf = &led_tick_semid,
         .cycatr = TA_HLNG,       // 準備完了後に開始する
         .cychdr = led_periodic_handler,
-        .cyctim = 100,
-        .cycphs = 100,
+        .cyctim = 100,  // 周期
+        .cycphs = 100,  // 初回起動までの遅延時間
     };
     T_CSEM csem = { .sematr = TA_TFIFO, .isemcnt = 0, .maxsem = 10 };
     ID cycid;
@@ -137,7 +137,7 @@ void task_led1(INT stacd, void *exinf)
             default:
                 led25_toggle();
                 ticks = 10;                    // 100ms通知を10回待つ
-                break;          
+                break;
         }
         err = tk_wai_sem(led_tick_semid, ticks, TMO_FEVR);
         if(err != E_OK) {

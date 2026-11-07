@@ -29,6 +29,7 @@
 
 /* 起動直後や測距失敗時は前進を許可しない。 */
 static volatile BOOL obstacle_blocked = TRUE;
+static volatile BOOL avoidance_turn_enabled;
 static INT current[2];
 static INT target[2];
 
@@ -58,7 +59,8 @@ static UH duty_to_level(UB duty_percent)
 static void motor_set(unsigned int phase_pin, unsigned int pwm_slice,
                       BOOL forward, UB duty_percent)
 {
-    if(obstacle_blocked == TRUE && forward == TRUE) duty_percent = 0U;
+    if(obstacle_blocked == TRUE && forward == TRUE
+            && avoidance_turn_enabled == FALSE) duty_percent = 0U;
     /* 方向を変える前に必ずPWMを0%にして、Hブリッジを停止する。 */
     pwm_set_level_b(pwm_slice, 0U);
     gpio_put(phase_pin, (forward == TRUE) ? 0 : 1);
@@ -187,6 +189,7 @@ void motor_stop_all(void)
     UINT intsts;
     DI(intsts);
     stop_locked();
+    avoidance_turn_enabled = FALSE;
     EI(intsts);
 }
 
@@ -263,3 +266,20 @@ void motor_drive_left(UB duty) { set_targets(-(INT)duty, duty); }
  * @param[in] duty PWMデューティ比（百分率）。
  */
 void motor_drive_right(UB duty) { set_targets(duty, -(INT)duty); }
+
+
+/**
+ * @brief 障害物回避中に左旋回目標を設定する。
+ * @param[in] duty PWMデューティ比（百分率）。
+ * @note 障害物ラッチ中でも旋回できるよう前進禁止を迂回する。回避タスク専用。
+ */
+void motor_drive_avoidance_left(UB duty)
+{
+    UINT intsts;
+    if(duty > 100U) duty = 100U;
+    DI(intsts);
+    avoidance_turn_enabled = TRUE;
+    target[0] = -(INT)duty;
+    target[1] = (INT)duty;
+    EI(intsts);
+}

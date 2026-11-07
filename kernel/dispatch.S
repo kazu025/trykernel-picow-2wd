@@ -56,9 +56,9 @@ disp_020:
 
     /* ⑥ 実行するタスクの切り替え */
 disp_030:
-    str     r2, [r0]
-    ldr     r0, [r2]
-    mov     sp, r0
+    str     r2, [r0]  // r0:cur_taskのアドレス
+    ldr     r0, [r2]  // r2:sche_task
+    mov     sp, r0    // cur_task = sche_task
 
     /* ⑦ スタック上のコンテキス情報の復元 */
     pop     {r0-r3}
