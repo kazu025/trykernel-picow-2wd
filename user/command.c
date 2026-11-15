@@ -39,6 +39,8 @@ static void cmd_led(int argc, char *argv[]);
 static void cmd_print(int argc, char *argv[]);
 static void cmd_motor(int argc, char *argv[]);
 static void cmd_drive(int argc, char *argv[]);
+static void cmd_velocity(int argc, char *argv[]);
+static void cmd_short_drive(int argc, char *argv[]);
 static void cmd_i2cscan(int argc, char *argv[]);
 static void cmd_distance(int argc, char *argv[]);
 static void cmd_gyro(int argc, char *argv[]);
@@ -46,6 +48,9 @@ static int split_args(char *line, char *argv[], int max_args);
 static BOOL parse_u8(const char *text, UB *value);
 static BOOL parse_duration(const char *text, RELTIM *value);
 static BOOL str_eq(const char *a, const char *b);
+
+/* Short commands start at zero duty until the operator selects a value. */
+static UB selected_duty = 0U;
 
 static const command_t command_table[] = {
     {"help",   cmd_help,   "show command list"},
@@ -56,6 +61,12 @@ static const command_t command_table[] = {
     {"print",  cmd_print,  "print test"},
     {"motor",  cmd_motor,  "left|right forward|reverse <0-100>, or stop"},
     {"drive",  cmd_drive,  "forward|reverse|left|right <0-100> [ms], or stop"},
+    {"v",      cmd_velocity, "set duty <0-100> for subsequent f/b/r/l commands"},
+    {"f",      cmd_short_drive, "forward at selected duty"},
+    {"b",      cmd_short_drive, "reverse at selected duty"},
+    {"r",      cmd_short_drive, "turn right at selected duty"},
+    {"l",      cmd_short_drive, "turn left at selected duty"},
+    {"s",      cmd_short_drive, "stop immediately and cancel avoidance"},
     {"i2cscan", cmd_i2cscan, "scan I2C bus"},
     {"distance", cmd_distance, "measure distance in millimeters"},
     {"gyro", cmd_gyro, "show angular velocity [1-50 samples], or calibrate"}
@@ -323,7 +334,7 @@ usage:
  * @param[in] argc コマンド名を含む引数の数。
  * @param[in] argv 進行方向、デューティ比、任意の動作時間、または停止指定。
  * @details 任意の動作時間を指定した場合、時間経過後に減速停止を指示する。
- *          後退以外の走行では障害物状態を確認する。
+ *          前進時だけ障害物状態を確認する。
  */
 static void cmd_drive(int argc, char *argv[])
 {
@@ -346,7 +357,7 @@ static void cmd_drive(int argc, char *argv[])
         return;
     }
     if(duty != 0U && motor_obstacle_blocked() == TRUE
-            && str_eq(argv[1], "reverse") == FALSE){
+            && str_eq(argv[1], "forward") == TRUE){
         uart_tx_send("drive: obstacle too close or distance unavailable\r\n");
         return;
     }
@@ -365,6 +376,57 @@ static void cmd_drive(int argc, char *argv[])
     EI(intsts);
     uart_tx_printf("drive: %s %u%%\r\n", argv[1], (UINT)duty);
     if(argc == 4 && duration == 0) task_motor_stop_drive();
+}
+
+/**
+ * @brief 短縮走行コマンド用のデューティ比を保存する。走行状態は変更しない。
+ */
+static void cmd_velocity(int argc, char *argv[])
+{
+    UB duty;
+
+    if(argc != 2 || parse_u8(argv[1], &duty) == FALSE || duty > 100U){
+        uart_tx_send("usage: v <0-100>\r\n");
+        return;
+    }
+    selected_duty = duty;
+    uart_tx_printf("v: %u%% (use f/b/r/l to apply)\r\n", (UINT)selected_duty);
+}
+
+/**
+ * @brief 保存したデューティ比で既存の走行処理を呼び出す。
+ * @details 障害物判定・加減速・回避処理はdriveコマンドと共通。
+ */
+static void cmd_short_drive(int argc, char *argv[])
+{
+    char duty_text[4];
+    char *drive_argv[] = {"drive", NULL, duty_text};
+
+    if(argc != 1){
+        uart_tx_send("usage: f/b/r/l/s (set duty with v <0-100>)\r\n");
+        return;
+    }
+    if(str_eq(argv[0], "s") == TRUE){
+        drive_argv[1] = "stop";
+        cmd_drive(2, drive_argv);
+        return;
+    }
+    if(str_eq(argv[0], "f") == TRUE) drive_argv[1] = "forward";
+    else if(str_eq(argv[0], "b") == TRUE) drive_argv[1] = "reverse";
+    else if(str_eq(argv[0], "r") == TRUE) drive_argv[1] = "right";
+    else drive_argv[1] = "left";
+
+    if(selected_duty == 100U){
+        duty_text[0] = '1';
+        duty_text[1] = '0';
+        duty_text[2] = '0';
+        duty_text[3] = '\0';
+    } else {
+        duty_text[0] = (char)('0' + selected_duty / 10U);
+        duty_text[1] = (char)('0' + selected_duty % 10U);
+        duty_text[2] = '\0';
+    }
+    cmd_drive(3, drive_argv);
 }
 
 /**

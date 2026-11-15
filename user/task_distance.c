@@ -83,10 +83,11 @@ void task_distance(INT stacd, void *exinf)
         if(vl53l1x_read_distance(&distance_mm) == FALSE){
             DI(intsts);
             shared_ready = FALSE;
-            EI(intsts);
             motor_obstacle_update(0U, FALSE);
+            task_motor_observe_range(FALSE);
+            EI(intsts);
             obstacle_near_previous = FALSE;
-            (void)task_motor_abort_avoidance();
+
             count = 0U;
             next = 0U;
             sum = 0U;
@@ -109,9 +110,9 @@ void task_distance(INT stacd, void *exinf)
         shared_average_mm = (UH)(sum / count);
         shared_sample_count = count;
         shared_ready = TRUE;
-        EI(intsts);
-
         motor_obstacle_update(distance_mm, TRUE);
+        task_motor_observe_range(TRUE);
+        EI(intsts);
         if(distance_mm <= 200U){
             if(obstacle_near_previous == FALSE){
                 (void)task_motor_request_avoidance();

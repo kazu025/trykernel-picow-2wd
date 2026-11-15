@@ -15,7 +15,8 @@
 #define MOTOR_PERIOD_MS         50U
 #define AVOID_STOP_TICKS       2U   /* 100 ms */
 #define AVOID_REVERSE_TICKS    6U   /* 300 ms */
-#define AVOID_PIVOT_TICKS     12U   /* 600 ms including direction ramp */
+#define AVOID_PIVOT_MAX_TICKS 60U   /* 約3秒 */
+#define AVOID_CLEAR_SAMPLES    2U
 #define AVOID_DUTY_PERCENT    30U
 
 /** モーター出力更新周期の通知に使用するセマフォID。 */
@@ -33,10 +34,37 @@ typedef enum {
 
 static AVOIDANCE_STATE avoidance_state;
 static UW avoidance_ticks;
+static UINT avoidance_clear_samples;
 static BOOL avoidance_enabled;
 static UW drive_ticks_remaining;
 static BOOL drive_expired;
-
+/**
+ * @brief 時間指定走行と障害物回避制御の状態を設定する。
+ *
+ * @param[in] enable_avoidance 障害物回避制御の有効／無効。
+ *                             TRUE：有効、FALSE：無効。
+ * @param[in] duration         走行継続時間（ms）。
+ *                             0を指定した場合は時間制限を設定しない。
+ *
+ * @details
+ * 障害物回避制御の有効／無効を設定し、回避要求フラグ、
+ * 回避状態および経過周期数を初期化する。
+ *
+ * 走行継続時間はモータ制御周期（MOTOR_PERIOD_MS）単位に切り上げ、
+ * 初回周期通知までの時間が不定であることを考慮して、
+ * さらに1周期を加算して管理する。
+ *
+ * また、走行時間満了フラグをクリアする。
+ *
+ * 本関数は走行管理状態の設定のみを行い、
+ * モータのPWM出力は直接変更しない。
+ *
+ * 共有状態の更新中は割り込みを禁止し、処理終了時に
+ * 元の割り込み状態へ復元する。
+ *
+ * @note durationに0を指定すると走行時間の監視を無効にする。
+ *       モータを停止する場合は、別途停止処理が必要となる。
+ */
 void task_motor_set_drive(BOOL enable_avoidance, RELTIM duration)
 {
     UINT intsts;
@@ -52,7 +80,21 @@ void task_motor_set_drive(BOOL enable_avoidance, RELTIM duration)
     drive_expired = FALSE;
     EI(intsts);
 }
-
+/**
+ * @brief 走行管理と障害物回避制御を解除し、モータを即時停止する。
+ *
+ * @details
+ * 時間指定走行の管理を解除し、障害物回避制御の状態を
+ * 初期化した後、左右モータのPWM出力を即時停止する。
+ *
+ * 通常のランプ減速処理を行わず、強制的に停止する。
+ *
+ * 一連の処理は割り込み禁止区間で実行し、
+ * 処理終了時に元の割り込み状態へ復元する。
+ *
+ * @note 本関数は走行停止処理を行うが、
+ *       以降の走行指示を恒久的に禁止するものではない。
+ */
 void task_motor_stop_drive(void)
 {
     UINT intsts;
@@ -84,6 +126,18 @@ ER task_motor_abort_avoidance(void)
     return tk_sig_sem(motor_tick_semid, 1);
 }
 
+/* motor_obstacle_update() と同じ割り込み禁止区間で呼び出す。 */
+void task_motor_observe_range(BOOL valid)
+{
+    if(avoidance_state != AVOIDANCE_PIVOT_LEFT) return;
+    if(valid == FALSE) avoidance_abort_pending = TRUE;
+    if(motor_obstacle_blocked() == TRUE){
+        avoidance_clear_samples = 0U;
+    }else if(avoidance_clear_samples < AVOID_CLEAR_SAMPLES){
+        avoidance_clear_samples++;
+    }
+}
+
 static const char *task_motor_avoidance_step(void)
 {
     UINT intsts;
@@ -99,9 +153,8 @@ static const char *task_motor_avoidance_step(void)
 
     if((abort != FALSE) && (avoidance_state != AVOIDANCE_IDLE)){
         motor_stop_all();
-        avoidance_state = AVOIDANCE_WAIT_CLEAR;
-        avoidance_ticks = 0U;
-        return "Avoidance: aborted, wait for valid clear range\r\n";
+        task_motor_set_drive(FALSE, 0);
+        return "Avoidance: stopped, distance unavailable\r\n";
     }
 
     if((request != FALSE) && (avoidance_state == AVOIDANCE_IDLE)){
@@ -125,26 +178,32 @@ static const char *task_motor_avoidance_step(void)
         if(++avoidance_ticks >= AVOID_REVERSE_TICKS){
             motor_drive_avoidance_left(AVOID_DUTY_PERCENT);
             avoidance_state = AVOIDANCE_PIVOT_LEFT;
+            avoidance_clear_samples = 0U;
             avoidance_ticks = 0U;
             return "Avoidance: pivot left\r\n";
         }
         break;
     case AVOIDANCE_PIVOT_LEFT:
-        if(++avoidance_ticks >= AVOID_PIVOT_TICKS){
+        if(avoidance_clear_samples >= AVOID_CLEAR_SAMPLES){
             motor_stop_all();
             avoidance_state = AVOIDANCE_WAIT_CLEAR;
             avoidance_ticks = 0U;
-            return "Avoidance: wait for clear path\r\n";
+            return "Avoidance: clear path confirmed\r\n";
+        }
+        if(++avoidance_ticks >= AVOID_PIVOT_MAX_TICKS){
+            task_motor_stop_drive();
+            return "Avoidance: stopped, pivot timeout\r\n";
         }
         break;
     case AVOIDANCE_WAIT_CLEAR:
         motor_stop_all();
-        if(motor_obstacle_blocked() == FALSE){
-            motor_drive_forward(AVOID_DUTY_PERCENT);
-            avoidance_state = AVOIDANCE_IDLE;
-            return "Avoidance: resume forward\r\n";
+        if(motor_obstacle_blocked() == TRUE){
+            task_motor_stop_drive();
+            return "Avoidance: stopped, path blocked again\r\n";
         }
-        break;
+        motor_drive_forward(AVOID_DUTY_PERCENT);
+        avoidance_state = AVOIDANCE_IDLE;
+        return "Avoidance: resume forward\r\n";
     case AVOIDANCE_IDLE:
     default:
         break;

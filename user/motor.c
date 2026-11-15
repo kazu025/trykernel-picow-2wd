@@ -29,7 +29,8 @@
 
 /* 起動直後や測距失敗時は前進を許可しない。 */
 static volatile BOOL obstacle_blocked = TRUE;
-static volatile BOOL avoidance_turn_enabled;
+/* 後退・左右旋回では車輪の正転側も含めて前方センサーを適用しない。 */
+static volatile BOOL obstacle_check_enabled = TRUE;
 static INT current[2];
 static INT target[2];
 
@@ -53,14 +54,14 @@ static UH duty_to_level(UB duty_percent)
  * @param[in] pwm_slice PWM出力に使用するスライス番号。
  * @param[in] forward TRUEは前進方向、FALSEは逆転方向。
  * @param[in] duty_percent PWMデューティ比（百分率）。
- * @details 障害物が検出されている間は前進側のデューティ比を0にする。
+ * @details 前進操作中に障害物が検出されている間は正転側の出力を0にする。
  *          方向切り替え時はいったんPWMを停止してから方向と出力を設定する。
  */
 static void motor_set(unsigned int phase_pin, unsigned int pwm_slice,
                       BOOL forward, UB duty_percent)
 {
     if(obstacle_blocked == TRUE && forward == TRUE
-            && avoidance_turn_enabled == FALSE) duty_percent = 0U;
+            && obstacle_check_enabled == TRUE) duty_percent = 0U;
     /* 方向を変える前に必ずPWMを0%にして、Hブリッジを停止する。 */
     pwm_set_level_b(pwm_slice, 0U);
     gpio_put(phase_pin, (forward == TRUE) ? 0 : 1);
@@ -124,14 +125,16 @@ static void stop_locked(void)
  * @param[in] distance_mm 測定距離（ミリメートル）。
  * @param[in] valid 測定値が有効な場合はTRUE。
  * @details 測定値が無効または停止距離以下の場合は前進を禁止し、
- *          走行中に禁止へ移行したときは左右のモーターを停止する。
+ *          前進操作中のみ左右のモーターを停止する。後退・旋回は継続する。
  */
 void motor_obstacle_update(UH distance_mm, BOOL valid)
 {
     UINT intsts;
     DI(intsts);
     if(valid == FALSE || distance_mm <= MOTOR_STOP_DISTANCE_MM){
-        if(obstacle_blocked == FALSE) stop_locked();
+        if(obstacle_check_enabled == TRUE
+                && (current[0] > 0 || current[1] > 0
+                    || target[0] > 0 || target[1] > 0)) stop_locked();
         obstacle_blocked = TRUE;
     }else{
         obstacle_blocked = FALSE;
@@ -152,6 +155,8 @@ static void set_immediate(UINT wheel, BOOL forward, UB duty)
     DI(intsts);
     if(duty > 100U) duty = 100U;
     if(obstacle_blocked == TRUE && forward == TRUE) duty = 0U;
+    /* 片輪の直接操作では従来どおり正転を前進操作として扱う。 */
+    obstacle_check_enabled = TRUE;
     current[wheel] = target[wheel] = forward ? (INT)duty : -(INT)duty;
     apply_wheel(wheel, current[wheel]);
     EI(intsts);
@@ -189,7 +194,7 @@ void motor_stop_all(void)
     UINT intsts;
     DI(intsts);
     stop_locked();
-    avoidance_turn_enabled = FALSE;
+    obstacle_check_enabled = TRUE;
     EI(intsts);
 }
 
@@ -197,13 +202,16 @@ void motor_stop_all(void)
  * @brief 左右車輪の目標デューティ比を設定する。
  * @param[in] left 左車輪の符号付き目標値。正は前進、負は逆転。
  * @param[in] right 右車輪の符号付き目標値。正は前進、負は逆転。
- * @details 障害物検出中は、左右とも逆転または停止となる目標値のみ設定する。
+ * @details 前進目標だけを障害物判定の対象とし、後退・左右旋回は常に許可する。
  */
 static void set_targets(INT left, INT right)
 {
     UINT intsts;
+    BOOL check_obstacle = left >= 0 && right >= 0;
     DI(intsts);
-    if(obstacle_blocked == FALSE || (left <= 0 && right <= 0)){
+    if(check_obstacle == FALSE || obstacle_blocked == FALSE
+            || (left == 0 && right == 0)){
+        obstacle_check_enabled = check_obstacle;
         target[0] = left;
         target[1] = right;
     }
@@ -255,31 +263,40 @@ void motor_drive_forward(UB duty) { set_targets(duty, duty); }
  */
 void motor_drive_reverse(UB duty) { set_targets(-(INT)duty, -(INT)duty); }
 
+/** @brief 旋回用に指定デューティ比を70%へ縮小する。小数点以下は切り捨て。 */
+static UB turn_duty(UB duty)
+{
+    if(duty > 100U) duty = 100U;
+    return (UB)(((UINT)duty * 70U) / 100U);
+}
+
 /**
- * @brief 車体に左旋回目標を設定する（左輪を後退、右輪を前進）。
- * @param[in] duty PWMデューティ比（百分率）。
+ * @brief 指定値の70%で左旋回する（左輪を後退、右輪を前進）。
+ * @param[in] duty 縮小前のPWMデューティ比（百分率）。
  */
-void motor_drive_left(UB duty) { set_targets(-(INT)duty, duty); }
+void motor_drive_left(UB duty)
+{
+    duty = turn_duty(duty);
+    set_targets(-(INT)duty, duty);
+}
 
 /**
- * @brief 車体に右旋回目標を設定する（左輪を前進、右輪を後退）。
- * @param[in] duty PWMデューティ比（百分率）。
+ * @brief 指定値の70%で右旋回する（左輪を前進、右輪を後退）。
+ * @param[in] duty 縮小前のPWMデューティ比（百分率）。
  */
-void motor_drive_right(UB duty) { set_targets(duty, -(INT)duty); }
+void motor_drive_right(UB duty)
+{
+    duty = turn_duty(duty);
+    set_targets(duty, -(INT)duty);
+}
 
 
 /**
- * @brief 障害物回避中に左旋回目標を設定する。
- * @param[in] duty PWMデューティ比（百分率）。
- * @note 障害物ラッチ中でも旋回できるよう前進禁止を迂回する。回避タスク専用。
+ * @brief 障害物回避中に指定値の70%で左旋回目標を設定する。
+ * @param[in] duty 縮小前のPWMデューティ比（百分率）。
+ * @note 通常の左旋回と同様に前方センサーの状態にかかわらず旋回する。
  */
 void motor_drive_avoidance_left(UB duty)
 {
-    UINT intsts;
-    if(duty > 100U) duty = 100U;
-    DI(intsts);
-    avoidance_turn_enabled = TRUE;
-    target[0] = -(INT)duty;
-    target[1] = (INT)duty;
-    EI(intsts);
+    motor_drive_left(duty);
 }
