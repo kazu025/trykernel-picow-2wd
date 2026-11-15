@@ -1,7 +1,7 @@
 # ===================================================================================
 # Pico RTOS system v00
 # original source TryKernel - Interface 2023/07 Part4Chap3
-# Build for Raspberry Pi Pico / RP2040 / Cortex-M0+
+# Build for Raspberry Pi Pico W / RP2040 / Cortex-M0+
 # ===================================================================================
 TARGET	:= tkv
 BUILD   := build

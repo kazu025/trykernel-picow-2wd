@@ -17,11 +17,11 @@ UW gpio_irq_count_get(void);
 void io_irq_bank0_handler(void);
 
 /* --- Pico Onboard LED --- */
-#define PICO_LED_PIN 25
-void led25_init(void);
-void led25_on(void);
-void led25_off(void);
-void led25_toggle(void);
+#define STATUS_LED_PIN 15
+void status_led_init(void);
+void status_led_on(void);
+void status_led_off(void);
+void status_led_toggle(void);
 /* --- I2C --- */
 void gpio_init_i2c(unsigned int pin);
 void gpio_init_spi(unsigned int pin);

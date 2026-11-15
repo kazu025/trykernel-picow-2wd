@@ -202,28 +202,28 @@ void io_irq_bank0_handler(void)
     }
 }
 /**
- * @brief Pico搭載LED（GPIO25）を出力として初期化する。
+ * @brief 外付けLED（GP15）を出力として初期化する。
  */
-void led25_init(void){
-    gpio_init_out(PICO_LED_PIN);
+void status_led_init(void){
+    gpio_init_out(STATUS_LED_PIN);
 }
 /**
- * @brief Pico搭載LED（GPIO25）を点灯する。
+ * @brief 外付けLED（GP15）を点灯する。
  */
-void led25_on(void){
-    gpio_set(PICO_LED_PIN);
+void status_led_on(void){
+    gpio_set(STATUS_LED_PIN);
 }
 /**
- * @brief Pico搭載LED（GPIO25）を消灯する。
+ * @brief 外付けLED（GP15）を消灯する。
  */
-void led25_off(void){
-    gpio_clear(PICO_LED_PIN);
+void status_led_off(void){
+    gpio_clear(STATUS_LED_PIN);
 }
 /**
- * @brief Pico搭載LED（GPIO25）の点灯状態を反転する。
+ * @brief 外付けLED（GP15）の点灯状態を反転する。
  */
-void led25_toggle(void){
-    gpio_toggle(PICO_LED_PIN);
+void status_led_toggle(void){
+    gpio_toggle(STATUS_LED_PIN);
 }
 /**
  * @brief GPIOピンをI2C機能に設定する。

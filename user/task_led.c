@@ -126,16 +126,16 @@ void task_led1(INT stacd, void *exinf)
     while(1) {
         switch (led_task_mode) {
             case LED_MODE_OFF:
-                led25_off();
+                status_led_off();
                 ticks = 1;                     // 100ms通知を1回待つ
                 break;
             case LED_MODE_ON:
-                led25_on();
+                status_led_on();
                 ticks = 1;                     // 100ms通知を1回待つ
                 break;
             case LED_MODE_BLINK:
             default:
-                led25_toggle();
+                status_led_toggle();
                 ticks = 10;                    // 100ms通知を10回待つ
                 break;
         }

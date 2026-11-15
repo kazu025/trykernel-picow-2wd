@@ -61,7 +61,7 @@ int usermain(void)
 {
     ER err;
     motor_init();
-    led25_init();
+    status_led_init();
     i2c0_init();
     err = i2c0_sync_init();
     if(err < E_OK) return err;

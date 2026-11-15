@@ -1,13 +1,15 @@
-# TryKernel RP2040 2WD
+# TryKernel Pico W 2WD
 
-Raspberry Pi Pico（RP2040）とTryKernelを使って、2輪駆動ロボットを制御する学習用プロジェクトです。
+Raspberry Pi Pico W（RP2040）とTryKernelを使って、2輪駆動ロボットを制御する学習用プロジェクトです。
 UARTコンソールから左右のモーターの回転方向とPWMデューティ比を指定できます。
 
 TryKernelに追加してきた同期・通信・周期イベントなどの機能を、実際のハードウェア制御へ応用することを目的としています。Pico SDKは使用せず、RP2040のレジスタを直接操作しています。
 
 ## 元のプロジェクトと今回の構成
 
-本プロジェクトは、[TryKernel RP2040 Console](https://github.com/kazu025/trykernel-rp2040-console)を元にしています。
+本プロジェクトは、[TryKernel RP2040 2WD](https://github.com/kazu025/trykernel-rp2040-2wd)のPico W向け派生版です。Wi-Fi操作と通信監視は今後追加します。
+
+元の2WD版は、[TryKernel RP2040 Console](https://github.com/kazu025/trykernel-rp2040-console)を元にしています。
 元のプロジェクトでは、RTOS機能の拡張に加え、温度センサー、MPU6050、電力モニター、LCD、SPI Flashなどを使った実験を行っていました。
 
 2WD向けにUART・LED・モーターを中心とする構成へ整理し、その後VL53L1Xの距離測定とMPU系ジャイロの表示・補正を追加しました。
@@ -44,7 +46,7 @@ TryKernelの原典は、CQ出版社『Interface』2023年7月号「ラズパイP
 - 測距値が200 mm以下になったときのモーター自動停止
 - 周期イベントによる走行指令の段階的な加減速
 - MPU系ジャイロのXYZ角速度表示と静止時のゼロ点補正
-- オンボードLEDの点灯・消灯・点滅
+- 外付けLEDの点灯・消灯・点滅
 - 起動時のモーター停止
 
 ホビー用5Vモーターでの単体確認後、車体のモーターに接続し、左右とも`forward`指定で車体が前進することを実機確認しました。未使用コマンドとビルド対象の整理後も動作確認済みです。
@@ -53,7 +55,7 @@ TryKernelの原典は、CQ出版社『Interface』2023年7月号「ラズパイP
 
 | 部品 | 今回の構成 |
 |---|---|
-| マイコン | Raspberry Pi Pico（RP2040、通常版） |
+| マイコン | Raspberry Pi Pico W（RP2040） |
 | 車体 | 秋月電子で購入した2WD Mini Smart Robot Mobile Platform Kit for education |
 | モーター | 車体付属のDCギヤードモーター（定格3〜6V） |
 | モータードライバ | AE-DRV8835-S |
@@ -104,6 +106,10 @@ VL53L1Xとジャイロ基板は、GP4・GP5のI²C0を共有します。配線�
 
 `i2cscan`ではVL53L1Xが`0x29`、ジャイロが`0x68`で検出されています。I²Cアドレスと識別レジスタWHO_AM_Iは別の値です。今回のジャイロはWHO_AM_Iが`0x70`で、[MPU-6500の識別値](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6500-Register-Map2.pdf)と一致します。ドライバはMPU-6050（0x68）とMPU-6500（0x70）の識別値を受け付けます。
 
+### 外付けLED
+
+Pico WのオンボードLEDは無線チップに接続されています。この版では、GP15（物理20番）から330 Ω程度の抵抗を通してLEDのアノードへ、カソードをGNDへ接続します。UARTの `led on/off/blink` で操作できます。
+
 ### UART
 
 | Pico | Debug Probeまたは3.3V USB-UART変換器 |
@@ -120,8 +126,7 @@ VL53L1Xとジャイロ基板は、GP4・GP5のI²C0を共有します。配線�
 GNU Make、Arm GNU Toolchain（`arm-none-eabi-gcc`など）、RP2040対応のOpenOCDを用意してください。ホストテストにはCコンパイラ（`cc`）も必要です。
 
 ```bash
-git clone https://github.com/kazu025/trykernel-rp2040-2wd.git
-cd trykernel-rp2040-2wd
+cd /home/kazu/Public/800-GitHubUp/063_TryKernel2WD_wifi
 make
 ```
 
@@ -134,7 +139,7 @@ make
 
 主な生成物は`build/tkv.elf`、`build/tkv.bin`、`build/tkv.hex`です。現在のMakefileはUF2を生成しません。
 
-Debug ProbeのSWDをPicoのSWCLK・SWDIO・GNDへ接続し、Picoへ給電した状態で書き込みます。
+Debug ProbeのSWDをPico WのSWCLK・SWDIO・GNDへ接続し、Pico Wへ給電した状態で書き込みます。
 
 ```bash
 make flash
@@ -189,7 +194,7 @@ s
 | `status` | LEDモード、UARTオーバーフローや割り込み回数など |
 | `echo hello` | 引数を表示 |
 | `print` | 出力テスト |
-| `led on` / `led off` / `led blink` | オンボードLED操作 |
+| `led on` / `led off` / `led blink` | 外付けLED操作 |
 | `motor left forward 50` | 左モーターを正転、デューティ指定50 |
 | `motor right reverse 30` | 右モーターを逆転、デューティ指定30 |
 | `motor left stop` / `motor right stop` | 片側を停止 |
