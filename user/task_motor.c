@@ -32,12 +32,16 @@ typedef enum {
     AVOIDANCE_WAIT_CLEAR
 } AVOIDANCE_STATE;
 
-static AVOIDANCE_STATE avoidance_state;
-static UW avoidance_ticks;
-static UINT avoidance_clear_samples;
-static BOOL avoidance_enabled;
-static UW drive_ticks_remaining;
-static BOOL drive_expired;
+/* 障害物回避制御の状態を管理する変数群 */
+static AVOIDANCE_STATE avoidance_state;  ///< 現在の障害物回避状態。
+static UW avoidance_ticks;               ///< 回避状態の経過周期数。
+static UINT avoidance_clear_samples;     ///< 障害物解消を確認するための測距サンプル数。
+static BOOL avoidance_enabled;           ///< 自動障害物回避制御の有効／無効。
+
+/* 時間指定走行の状態を管理する変数群 */
+static UW drive_ticks_remaining;         ///< 時間指定走行の残り周期数。
+static BOOL drive_expired;               ///< 時間指定走行の満了フラグ。
+
 /**
  * @brief 時間指定走行と障害物回避制御の状態を設定する。
  *

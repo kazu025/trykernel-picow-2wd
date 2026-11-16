@@ -63,25 +63,36 @@ int usermain(void)
     motor_init();
     status_led_init();
     i2c0_init();
+    // I2C同期通信の初期化
     err = i2c0_sync_init();
     if(err < E_OK) return err;
+    // Uart送信排他制御用セマフォの初期化
     err = uart_sync_init();
     if(err < E_OK) return err;
+    // Uart送信機能初期化
     err = uart_tx_init();
     if(err < E_OK) return err;
+    // 送信タスク初期化
     err = task_uartrx_init();
     if(err < E_OK) return err;
+    // 送信タスク起動
     err = start_task((FP)task_uarttx, 6, stack_tx, sizeof(stack_tx));
     if(err < E_OK) return err;
+    // 起動ログ表示
     uart_tx_send("TryKernel 2WD: UART / LED / motor ready\r\n");
+    // LED制御タスク起動
     err = start_task((FP)task_led1, 12, stack_led, sizeof(stack_led));
     if(err < E_OK) return err;
+    // 距離測定タスク起動
     err = start_task((FP)task_distance, 10,
                      stack_distance, sizeof(stack_distance));
     if(err < E_OK) return err;
+    // モニタリング用のモーター制御タスクを起動する。
     err = task_motor_init();
     if(err < E_OK) return err;
+    // モニタリング用のモーター制御タスクを起動する。
     err = start_task((FP)task_motor, 8, stack_motor, sizeof(stack_motor));
     if(err < E_OK) return err;
+    // uart受信タスクを起動する。
     return start_task((FP)task_uartrx, 4, stack_rx, sizeof(stack_rx));
 }
