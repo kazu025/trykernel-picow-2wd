@@ -17,6 +17,7 @@
 #include "task_uartrx.h"
 #include "task_distance.h"
 #include "task_motor.h"
+#include "heartbeat.h"
 
 extern void task_uarttx(INT stacd, void *exinf);
 extern void task_led1(INT stacd, void *exinf);
@@ -26,7 +27,7 @@ static UW stack_rx[1024 / sizeof(UW)];       //!< UART受信タスクのスタ�
 static UW stack_led[1024 / sizeof(UW)];      //!< LED制御タスクのスタック領域。
 static UW stack_distance[1024 / sizeof(UW)]; //!< 距離測定タスクのスタック領域。
 static UW stack_motor[1024 / sizeof(UW)];    //!< モーター制御タスクのスタック領域。
-
+static UW stack_heartbeat[1024 / sizeof(UW)];//!< HeartBeat監視タスクのスタック領域
 /**
  * @brief 指定されたエントリー関数からタスクを生成して起動する。
  * @param[in] entry タスクのエントリー関数。
@@ -78,6 +79,9 @@ int usermain(void)
     // 送信タスク起動
     err = start_task((FP)task_uarttx, 6, stack_tx, sizeof(stack_tx));
     if(err < E_OK) return err;
+    // Heartbeat 監視タスク機能の初期化
+    err = heartbeat_init();
+    if(err < E_OK) return err;
     // 起動ログ表示
     uart_tx_send("TryKernel 2WD: UART / LED / motor ready\r\n");
     // LED制御タスク起動
@@ -92,6 +96,9 @@ int usermain(void)
     if(err < E_OK) return err;
     // モニタリング用のモーター制御タスクを起動する。
     err = start_task((FP)task_motor, 8, stack_motor, sizeof(stack_motor));
+    if(err < E_OK) return err;
+    // Heartbeat監視タスクを起動
+    err = start_task((FP)task_heartbeat, 5, stack_heartbeat, sizeof(stack_heartbeat));
     if(err < E_OK) return err;
     // uart受信タスクを起動する。
     return start_task((FP)task_uartrx, 4, stack_rx, sizeof(stack_rx));

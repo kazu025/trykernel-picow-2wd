@@ -67,7 +67,12 @@ void console_init(void){
  * NULL終端文字を除いて最大127文字である。
  */
 void console_input_char(UB ch){
-    if(ch == '\r'){
+    /* CR または lF をコマンド終端として処理する */
+    if(ch == '\r'|| ch == '\n'){
+        /* CRLF の2文字目などによる空行は無視 */
+        if(console_line_pos == 0){
+            return;
+        }
         console_line_buf[console_line_pos] = '\0'; // Null-terminate the string
 
         uart_tx_send("\r\n"); // Move to new line

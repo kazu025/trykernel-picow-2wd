@@ -16,3 +16,10 @@ build/
 
 # Generated repository tree
 /repository-tree.txt
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc

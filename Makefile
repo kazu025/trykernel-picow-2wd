@@ -67,6 +67,7 @@ C_SRCS  := \
 	user/task_distance.c \
 	user/task_motor.c \
 	user/task_uartrx.c \
+	user/heartbeat.c \
 	user/usermain.c \
 	user/motor.c \
 	user/command.c \
@@ -74,9 +75,7 @@ C_SRCS  := \
 	user/uart_sync.c \
 	user/task_uarttx.c \
 	user/uart_tx.c	\
-	user/mini_printf.c \
-	drivers/gpio.c \
-	drivers/uart.c
+	user/mini_printf.c
 #	kernel/syslib.c \
 
 S_SRCS := \

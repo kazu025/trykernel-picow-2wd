@@ -21,7 +21,7 @@
 #include "task_motor.h"
 #include "vl53l1x.h"
 #include "mpu6050.h"
-
+#include "heartbeat.h"
 #define CMD_MAX_ARGS       16
 #define CMD_OUTPUT_BUF_SIZE 128U
 
@@ -48,6 +48,7 @@ static int split_args(char *line, char *argv[], int max_args);
 static BOOL parse_u8(const char *text, UB *value);
 static BOOL parse_duration(const char *text, RELTIM *value);
 static BOOL str_eq(const char *a, const char *b);
+static void cmd_heartbeat(int argc, char *argv[]);
 
 /* Short commands start at zero duty until the operator selects a value. */
 static UB selected_duty = 0U;
@@ -69,7 +70,8 @@ static const command_t command_table[] = {
     {"s",      cmd_short_drive, "stop immediately and cancel avoidance"},
     {"i2cscan", cmd_i2cscan, "scan I2C bus"},
     {"distance", cmd_distance, "measure distance in millimeters"},
-    {"gyro", cmd_gyro, "show angular velocity [1-50 samples], or calibrate"}
+    {"gyro",   cmd_gyro, "show angular velocity [1-50 samples], or calibrate"},
+    {"hb",     cmd_heartbeat, "receive heartbeat from pc"}
 };
 
 static const int command_count = sizeof(command_table) / sizeof(command_table[0]);
@@ -547,4 +549,24 @@ static void cmd_gyro(int argc, char *argv[])
         uart_tx_printf("gyro: x %d, y %d, z %d mdps\r\n", x, y, z);
         if(i + 1U < count) (void)tk_dly_tsk(100);
     }
+}
+/**
+ * @brief UARTから受信したHeartbeatコマンドを処理する。
+ *
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv コマンド引数（未使用）。
+ *
+ * @details
+ * 引数なしのhbコマンドを受信した場合、
+ * Heartbeat監視モジュールに受信を通知する。
+ *
+ * 正常受信時はUARTログを出力しない。
+ */
+static void cmd_heartbeat(int argc, char *argv[]){
+    (void)argv;
+    if(argc != 1){
+        uart_tx_send("usage: hb\r\n");
+        return;
+    }
+    heartbeat_received();
 }
